@@ -2,10 +2,11 @@
 
 An animated map of the evening of 17 November 2026, when a warm west wind broke through the cold air in the Vienna Basin. Gumpoldskirchen gained 8.4 °C in 20 minutes.
 
-The site is two static files:
+The site is three static files:
 
 - `index.html` holds the page, its styles and its code.
-- `assets.js` holds the data: station readings, terrain shading, borders, rivers and lakes.
+- `assets.js` holds the data for the evening: station readings, terrain shading, borders, rivers and lakes.
+- `history.js` holds 30 years of similar jumps at Gumpoldskirchen.
 
 No build step is needed. Open `index.html` through any web server.
 
@@ -31,9 +32,20 @@ python build_assets.py
 
 `build_assets.py` writes `assets.js` to the repository root.
 
+## Regenerating the history
+
+`history.js` lists every day since 1994 on which Gumpoldskirchen warmed by 6 °C or more within 20 minutes. It comes from the GeoSphere climate station archive (`klima-v2-10min`), which keeps the full record.
+
+```sh
+python fetch_history.py
+python build_history.py
+```
+
+`build_history.py` writes `history.js` to the repository root.
+
 ## Sources
 
-- Station readings: [GeoSphere Austria Data Hub](https://data.hub.geosphere.at/), TAWES 10-minute observations, CC BY 4.0.
+- Station readings: [GeoSphere Austria Data Hub](https://data.hub.geosphere.at/), TAWES and climate station 10-minute observations, CC BY 4.0.
 - Terrain: Mapzen terrain tiles on AWS.
 - Borders, rivers and lakes: Natural Earth and Statistik Austria.
 
