@@ -1,6 +1,6 @@
 # Vienna Basin Warm Burst
 
-An animated map of the evening of 17 November 2026, when a warm west wind broke through the cold air in the Vienna Basin. Gumpoldskirchen gained 8.4 °C in 20 minutes.
+An animated 3D map of the evening of 17 November 2026, when a warm west wind broke through the cold air in the Vienna Basin. Gumpoldskirchen gained 8.4 °C in 20 minutes.
 
 The site is three static files:
 
@@ -9,6 +9,8 @@ The site is three static files:
 - `history.js` holds 30 years of similar jumps at Gumpoldskirchen.
 
 No build step is needed. Open `index.html` through any web server.
+
+The 3D view uses [three.js](https://threejs.org/) r128, loaded from cdnjs. If the browser has no WebGL, or the library does not load, the page shows the flat map instead.
 
 ## Regenerating the data
 

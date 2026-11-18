@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Animated map and charts of the sudden evening warm-up around Baden and Gumpoldskirchen, Austria, on 17 November 2026, from 10-minute readings at 138 weather stations.">
+<meta name="description" content="Animated 3D map and charts of the sudden evening warm-up around Baden and Gumpoldskirchen, Austria, on 17 November 2026, from 10-minute readings at 138 weather stations.">
 <meta property="og:title" content="Vienna Basin Warm Burst">
-<meta property="og:description" content="Animated map and charts of the sudden evening warm-up around Baden and Gumpoldskirchen, Austria, on 17 November 2026, from 10-minute readings at 138 weather stations.">
+<meta property="og:description" content="Animated 3D map and charts of the sudden evening warm-up around Baden and Gumpoldskirchen, Austria, on 17 November 2026, from 10-minute readings at 138 weather stations.">
 <meta property="og:type" content="article">
 <style>
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -132,7 +132,45 @@ h1 em { font-style: normal; color: var(--warm); }
 .seg button:hover { background: var(--panel-2); color: var(--ink); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .mapwrap { position: relative; aspect-ratio: 1.4 / 1; width: 100%; max-width: 100%; background: #0d131c; }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: crosshair; }
+.camctl { position: absolute; right: 10px; bottom: 10px; z-index: 2; display: flex; flex-direction: column; gap: 6px; }
+.camctl button {
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid #33445a;
+  background: rgba(10, 15, 22, 0.82);
+  color: var(--ink);
+  font: 600 1.05rem var(--mono);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.camctl button:hover { background: var(--panel-2); }
+.camctl svg { width: 18px; height: 18px; }
+.camhint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 2;
+  margin: 0;
+  max-width: calc(100% - 70px);
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: rgba(10, 15, 22, 0.72);
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+.camhint.gone { opacity: 0; }
+@media (max-width: 600px) {
+  .mapwrap.is3d { aspect-ratio: 1 / 1.05; }
+  .camctl button { width: 30px; height: 30px; }
+}
 .tip {
   position: absolute;
   z-index: 3;
@@ -382,6 +420,10 @@ table.rank button { appearance: none; background: none; border: 0; padding: 0; c
 
   <section class="mapcard" aria-label="Animated map">
     <div class="toolbar">
+      <div class="seg" role="group" aria-label="Map type" id="dimSeg" hidden>
+        <button type="button" id="dim3" aria-pressed="true">3D</button>
+        <button type="button" id="dimFlat" aria-pressed="false">Flat</button>
+      </div>
       <div class="seg" role="group" aria-label="Map area">
         <button type="button" id="viewClose" aria-pressed="true">Vienna Basin</button>
         <button type="button" id="viewWide" aria-pressed="false">Eastern Austria</button>
@@ -392,7 +434,14 @@ table.rank button { appearance: none; background: none; border: 0; padding: 0; c
       </div>
     </div>
     <div class="mapwrap" id="mapwrap">
-      <canvas id="map" role="img" aria-label="Map of station temperatures and wind over time. The table below lists the same key figures."></canvas>
+      <canvas id="gl" hidden></canvas>
+      <canvas id="map" tabindex="0" role="img" aria-label="Map of station temperatures and wind over time. The table below lists the same key figures."></canvas>
+      <div class="camctl" id="camctl" hidden>
+        <button type="button" id="camReset" aria-label="Reset the view" title="Reset the view"><svg id="needle" viewBox="0 0 18 18"><path d="M9 1.5l3.4 7.5H5.6z" fill="#f58a4a"/><path d="M9 16.5l3.4-7.5H5.6z" fill="#74859a"/></svg></button>
+        <button type="button" id="zoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" id="zoomOut" aria-label="Zoom out" title="Zoom out">−</button>
+      </div>
+      <p class="camhint" id="camHint" hidden></p>
       <div class="tip" id="tip" hidden></div>
     </div>
     <div class="transport">
@@ -409,10 +458,12 @@ table.rank button { appearance: none; background: none; border: 0; padding: 0; c
         <canvas id="ramp" width="500" height="10"></canvas>
         <div class="ticks" id="rampTicks"></div>
       </div>
-      <span class="key"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="#f58a4a" stroke="#0a0f16" stroke-width="2"/><circle cx="8" cy="8" r="6.6" fill="none" stroke="#e9eef5" stroke-opacity=".7"/></svg>Station reading</span>
+      <span class="key" id="keyDot"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="#f58a4a" stroke="#0a0f16" stroke-width="2"/><circle cx="8" cy="8" r="6.6" fill="none" stroke="#e9eef5" stroke-opacity=".7"/></svg>Station reading</span>
+      <span class="key" id="keyBar" hidden><svg width="26" height="20" viewBox="0 0 26 20"><rect x="2" y="12" width="6" height="7" rx="1" fill="#4a8fe0" stroke="#0a0f16"/><rect x="10" y="7" width="6" height="12" rx="1" fill="#b3472a" stroke="#0a0f16"/><rect x="18" y="1" width="6" height="18" rx="1" fill="#f58a4a" stroke="#0a0f16"/></svg><span id="keyBarText">Station reading, taller is warmer</span></span>
       <span class="key"><svg width="44" height="12" viewBox="0 0 44 12"><path d="M2 6H34" stroke="#e9eef5" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M42 6l-8-4v8z" fill="#e9eef5"/></svg><span id="arrowKey">Wind, longer is stronger</span></span>
       <span class="key"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="3.5" fill="#fdbb7c"/><circle cx="9" cy="9" r="7.5" fill="none" stroke="#fdbb7c" stroke-width="1.5"/></svg>Changing by 2&nbsp;°C or more in 10 minutes</span>
       <span>The colored surface is an estimate between stations.</span>
+      <span id="keyEx" hidden></span>
     </div>
   </section>
 
@@ -482,11 +533,12 @@ table.rank button { appearance: none; background: none; border: 0; padding: 0; c
   </section>
 
   <footer class="foot">
-    <p>The readings fit a foehn-type downslope wind, but they do not prove the cause. Dots and numbers are measurements. The colored surface is calculated from the nearest stations, giving more weight to stations at a similar altitude. Baden has no official station, so its value is an estimate from that surface. All times are Central European Time.</p>
+    <p>The readings fit a foehn-type downslope wind, but they do not prove the cause. Columns, dots and numbers are measurements. The colored surface is calculated from the nearest stations, giving more weight to stations at a similar altitude. Baden has no official station, so its value is an estimate from that surface. All times are Central European Time.</p>
     <p>Data: <a href="https://data.hub.geosphere.at/">GeoSphere Austria Data Hub</a>, 10-minute station observations (TAWES for the evening, the climate station archive for the history), CC BY 4.0. Terrain: Mapzen terrain tiles on AWS. Borders, rivers and lakes: Natural Earth and Statistik Austria.</p>
   </footer>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="assets.js"></script>
 <script>
 (() => {
@@ -499,7 +551,7 @@ const byName = n => ST.findIndex(s => s.name === n);
 const mercY = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
 const FONT_B = '"IBM Plex Sans", system-ui, sans-serif', FONT_M = '"IBM Plex Mono", ui-monospace, Consolas, monospace', FONT_D = '"Archivo", "Arial Narrow", Arial, sans-serif';
 
-const state = { t: reduced ? 38 : 30, playing: false, speed: 1, view: 'close', mode: 'temp', sel: -1, hover: -1 };
+const state = { t: reduced ? 38 : 30, playing: false, speed: 1, view: 'close', mode: 'temp', dim: 'flat', sel: -1, hover: -1 };
 const BASE = ['Eisenstadt', 'Gumpoldskirchen', 'Wien Hohe Warte', 'Hohe Wand'].map(byName);
 const SCOL = ['--s1', '--s2', '--s3', '--s4', '--s5'].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
 const iGump = byName('Gumpoldskirchen'), iHW = byName('Hohe Wand');
@@ -604,7 +656,6 @@ function computeField(V, vals, m) {
     let q = (val - lo) * sc | 0; if (q < 0) q = 0; else if (q > LN - 1) q = LN - 1;
     out[c] = LUT[q];
   }
-  V.fctx.putImageData(V.idata, 0, 0);
 }
 
 /* per-time station values */
@@ -644,26 +695,31 @@ function resize() {
   if (!r.width) return;
   W = r.width; H = r.height; dpr = Math.min(window.devicePixelRatio || 1, 2); sc = clamp(W / 1100, 0.62, 1.1);
   for (const c of [canvas, bg]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  if (G.ok && state.dim === '3d') { G.renderer.setPixelRatio(dpr); G.renderer.setSize(W, H, false); }
   for (const k in VIEWS) VIEWS[k].overlay = null;
   dirty = true;
 }
-function tracePath(c, V, flat) {
-  for (let i = 0; i < flat.length; i += 2) { const x = V.px(flat[i]) * W, y = V.py(flat[i + 1]) * H; i ? c.lineTo(x, y) : c.moveTo(x, y); }
+function tracePath(c, V, flat, w, h) {
+  for (let i = 0; i < flat.length; i += 2) { const x = V.px(flat[i]) * w, y = V.py(flat[i + 1]) * h; i ? c.lineTo(x, y) : c.moveTo(x, y); }
+}
+function drawLines(c, V, w, h, k) {
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(16,26,40,.82)'; c.strokeStyle = 'rgba(150,185,225,.55)'; c.lineWidth = k;
+  for (const r of A.lakes) { c.beginPath(); tracePath(c, V, r, w, h); c.closePath(); c.fill(); c.stroke(); }
+  c.strokeStyle = 'rgba(150,185,225,.4)'; c.lineWidth = k;
+  for (const r of A.rivers) { c.beginPath(); tracePath(c, V, r, w, h); c.stroke(); }
+  c.strokeStyle = 'rgba(165,198,235,.75)'; c.lineWidth = (V.key === 'close' ? 2.2 : 1.7) * k;
+  for (const r of A.danube) { c.beginPath(); tracePath(c, V, r, w, h); c.stroke(); }
+  c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = k;
+  for (const r of A.states) { c.beginPath(); tracePath(c, V, r, w, h); c.stroke(); }
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.3 * k; c.setLineDash([7 * k, 3 * k, 2 * k, 3 * k]);
+  for (const r of A.borders) { c.beginPath(); tracePath(c, V, r, w, h); c.stroke(); }
+  c.setLineDash([]);
 }
 function buildOverlay(V) {
   const o = document.createElement('canvas'); o.width = canvas.width; o.height = canvas.height;
-  const c = o.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.lineJoin = 'round'; c.lineCap = 'round';
-  c.fillStyle = 'rgba(16,26,40,.82)'; c.strokeStyle = 'rgba(150,185,225,.55)'; c.lineWidth = 1;
-  for (const r of A.lakes) { c.beginPath(); tracePath(c, V, r); c.closePath(); c.fill(); c.stroke(); }
-  c.strokeStyle = 'rgba(150,185,225,.4)'; c.lineWidth = 1;
-  for (const r of A.rivers) { c.beginPath(); tracePath(c, V, r); c.stroke(); }
-  c.strokeStyle = 'rgba(165,198,235,.75)'; c.lineWidth = V.key === 'close' ? 2.2 : 1.7;
-  for (const r of A.danube) { c.beginPath(); tracePath(c, V, r); c.stroke(); }
-  c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1;
-  for (const r of A.states) { c.beginPath(); tracePath(c, V, r); c.stroke(); }
-  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.3; c.setLineDash([7, 3, 2, 3]);
-  for (const r of A.borders) { c.beginPath(); tracePath(c, V, r); c.stroke(); }
-  c.setLineDash([]);
+  const c = o.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawLines(c, V, W, H, 1);
   if (W >= 520) {
     c.font = `600 ${Math.round(10.5 * Math.max(sc, .9))}px ${FONT_B}`; c.textAlign = 'center'; c.textBaseline = 'middle';
     try { c.letterSpacing = '2.5px'; } catch (e) {}
@@ -683,7 +739,9 @@ function buildOverlay(V) {
 }
 function composeBg() {
   const V = VIEWS[state.view];
+  if (state.dim === '3d') { if (!V.g3) build3d(V); updateField3d(V); updateBars(V); return; }
   computeField(V, vShow, MODES[state.mode]);
+  V.fctx.putImageData(V.idata, 0, 0);
   if (!V.overlay) buildOverlay(V);
   bctx.setTransform(1, 0, 0, 1, 0, 0);
   bctx.globalCompositeOperation = 'source-over';
@@ -697,16 +755,44 @@ function haloText(c, txt, x, y, fill) {
   c.fillStyle = fill; c.fillText(txt, x, y);
 }
 function valueLabel(v) { return v === v ? (state.mode === 'temp' ? neg(v) : sgn(v)) + '°' : '–'; }
-function drawTag(x, y, r, name, val, side) {
-  const fs = Math.round(clamp(12 * sc, 10.5, 13));
-  ctx.textBaseline = 'middle';
-  const nf = `600 ${fs}px ${FONT_B}`, vf = `600 ${fs + 1}px ${FONT_M}`;
+function tagBox(x, y, r, name, val, side) {
+  const fs = Math.round(clamp(12 * sc, 10.5, 13)), nf = `600 ${fs}px ${FONT_B}`, vf = `600 ${fs + 1}px ${FONT_M}`;
   ctx.font = nf; const nw = ctx.measureText(name).width;
   ctx.font = vf; const vw = ctx.measureText(val).width;
-  const gap = 5, total = nw + gap + vw, x0 = side === 'r' ? x + r + 6 : x - r - 6 - total;
-  ctx.textAlign = 'left';
-  ctx.font = nf; haloText(ctx, name, x0, y, 'rgba(233,238,245,.92)');
-  ctx.font = vf; haloText(ctx, val, x0 + nw + gap, y, '#ffffff');
+  const total = nw + 5 + vw, x0 = side === 'r' ? x + r + 6 : x - r - 6 - total;
+  return { x0, y, nw, nf, vf, name, val, rect: [x0 - 3, y - fs * .75, x0 + total + 3, y + fs * .75] };
+}
+function paintTag(t) {
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.font = t.nf; haloText(ctx, t.name, t.x0, t.y, 'rgba(233,238,245,.92)');
+  ctx.font = t.vf; haloText(ctx, t.val, t.x0 + t.nw + 5, t.y, '#ffffff');
+}
+function drawTag(x, y, r, name, val, side) { paintTag(tagBox(x, y, r, name, val, side)); }
+function drawArrow(x0, y0, x1, y1, kmh, now) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (len < 2) return;
+  const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+  ctx.lineCap = 'butt';
+  ctx.setLineDash([]); ctx.strokeStyle = 'rgba(8,12,20,.5)'; ctx.lineWidth = 3.4;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.setLineDash([5, 4]); ctx.lineDashOffset = reduced ? 0 : -((now / 1000) * (8 + kmh * 0.9)) % 9;
+  ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.setLineDash([]);
+  const hx = x1 + ux * 6, hy = y1 + uy * 6, nx = -uy, ny = ux;
+  ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.strokeStyle = 'rgba(8,12,20,.5)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(x1 + nx * 3.4, y1 + ny * 3.4); ctx.lineTo(x1 - nx * 3.4, y1 - ny * 3.4); ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+function drawClock() {
+  const big = Math.round(clamp(34 * sc, 20, 36)), pad = 10 * Math.max(sc, .7), tw = big * 2.9, th = big + 22 * Math.max(sc, .75);
+  ctx.fillStyle = 'rgba(10,15,22,.78)';
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(10, 10, tw + pad * 2, th + pad, 7) : ctx.rect(10, 10, tw + pad * 2, th + pad); ctx.fill();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.font = `700 ${big}px ${FONT_D}`; ctx.fillStyle = '#ffffff';
+  ctx.fillText(fmtTime(Math.floor(state.t + 1e-6)), 10 + pad, 10 + pad * .7);
+  ctx.font = `500 ${Math.round(clamp(10.5 * sc, 9, 11))}px ${FONT_M}`; ctx.fillStyle = 'rgba(233,238,245,.72)';
+  ctx.fillText('CET · ' + fmtDate(state.t), 10 + pad, 10 + pad * .7 + big + 2);
+  return [10, 10, 10 + tw + pad * 2, 10 + th + pad];
 }
 function drawMap(now) {
   const V = VIEWS[state.view], m = MODES[state.mode];
@@ -721,16 +807,8 @@ function drawMap(now) {
     const sp = Math.hypot(wv[0], wv[1]);
     if (sp < 1.5) continue;
     const kmh = sp * 3.6, ux = wv[0] / sp, uy = -wv[1] / sp, x = V.px(s.lon) * W, y = V.py(s.lat) * H;
-    const L = Math.min(kmh * 0.95 * sc * (V.key === 'close' ? 1 : .8), 70), a = r + 3, x0 = x + ux * a, y0 = y + uy * a, x1 = x + ux * (a + L), y1 = y + uy * (a + L);
-    ctx.setLineDash([]); ctx.strokeStyle = 'rgba(8,12,20,.5)'; ctx.lineWidth = 3.4;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-    ctx.setLineDash([5, 4]); ctx.lineDashOffset = reduced ? 0 : -((now / 1000) * (8 + kmh * 0.9)) % 9;
-    ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-    ctx.setLineDash([]);
-    const hx = x1 + ux * 6, hy = y1 + uy * 6, nx = -uy, ny = ux;
-    ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.strokeStyle = 'rgba(8,12,20,.5)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(x1 + nx * 3.4, y1 + ny * 3.4); ctx.lineTo(x1 - nx * 3.4, y1 - ny * 3.4); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const L = Math.min(kmh * 0.95 * sc * (V.key === 'close' ? 1 : .8), 70), a = r + 3;
+    drawArrow(x + ux * a, y + uy * a, x + ux * (a + L), y + uy * (a + L), kmh, now);
   }
   const pulse = reduced ? .5 : (now / 900) % 1;
   for (const i of V.inView) {
@@ -764,14 +842,325 @@ function drawMap(now) {
     ctx.beginPath(); ctx.arc(x, y, r + 4.5, 0, 6.2832); ctx.stroke();
     if (!labeled.has(i)) { labeled.add(i); drawTag(x, y, r + 3, s.name, valueLabel(vShow[i]), x > W * .7 ? 'l' : 'r'); }
   }
-  const big = Math.round(clamp(34 * sc, 20, 36)), pad = 10 * Math.max(sc, .7), tw = big * 2.9, th = big + 22 * Math.max(sc, .75);
-  ctx.fillStyle = 'rgba(10,15,22,.78)';
-  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(10, 10, tw + pad * 2, th + pad, 7) : ctx.rect(10, 10, tw + pad * 2, th + pad); ctx.fill();
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.font = `700 ${big}px ${FONT_D}`; ctx.fillStyle = '#ffffff';
-  ctx.fillText(fmtTime(Math.floor(state.t + 1e-6)), 10 + pad, 10 + pad * .7);
-  ctx.font = `500 ${Math.round(clamp(10.5 * sc, 9, 11))}px ${FONT_M}`; ctx.fillStyle = 'rgba(233,238,245,.72)';
-  ctx.fillText('CET · ' + fmtDate(state.t), 10 + pad, 10 + pad * .7 + big + 2);
+  drawClock();
+}
+
+/* 3D scene: real terrain with stretched heights, the estimated surface draped over it, one column per station */
+const glc = $('gl'), G = { ok: false }, FOV = 30, TANF = Math.tan(FOV / 2 * Math.PI / 180);
+const EXAG = { close: 8, wide: 7 }, SEG = 12, VPB = SEG * 3 + 1, CAM0 = { az: .38, el: .68 };
+const zoom0 = () => W && W < 600 ? .68 : 1;
+const cam = { az: CAM0.az, el: CAM0.el, zoom: 1, px: 0, pz: 0, d: 100, swayT: 0, hold: false, last: 0, tw: null };
+const P3 = [0, 0, 0];
+function init3d() {
+  if (!window.THREE) return;
+  try { G.renderer = new THREE.WebGLRenderer({ canvas: glc, antialias: true }); } catch (e) { return; }
+  G.renderer.setClearColor(0x0d131c, 1);
+  G.scene = new THREE.Scene();
+  G.camera = new THREE.PerspectiveCamera(FOV, 1.4, 1, 4000);
+  G.light = new THREE.Vector3(-.45, .8, -.4).normalize();
+  G.v = new THREE.Vector3();
+  G.ok = true;
+}
+function groundY(V, lon, lat) {
+  const fx = clamp(V.px(lon) * V.gw - .5, 0, V.gw - 1.001), fy = clamp(V.py(lat) * V.gh - .5, 0, V.gh - 1.001);
+  const i = Math.floor(fx), j = Math.floor(fy), a = fx - i, b = fy - j, e = V.elev, c = j * V.gw + i;
+  return ((e[c] * (1 - a) + e[c + 1] * a) * (1 - b) + (e[c + V.gw] * (1 - a) + e[c + V.gw + 1] * a) * b) / 1000 * EXAG[V.key];
+}
+const TERRAIN_VS = `varying vec2 vUv; varying vec3 vN; varying float vD;
+void main() { vUv = uv; vN = normal; vec4 mv = modelViewMatrix * vec4(position, 1.); vD = -mv.z; gl_Position = projectionMatrix * mv; }`;
+const TERRAIN_FS = `uniform sampler2D tA; uniform sampler2D tB; uniform sampler2D tRamp; uniform sampler2D tLines; uniform float uMix; uniform vec3 uL; uniform vec3 uFog; uniform vec2 uFogD;
+varying vec2 vUv; varying vec3 vN; varying float vD;
+void main() {
+  vec4 a = texture2D(tA, vUv), b = texture2D(tB, vUv);
+  float u = mix(a.r * 65280. + a.a * 255., b.r * 65280. + b.a * 255., uMix) / 65535.;
+  vec3 col = texture2D(tRamp, vec2(u * (1023. / 1024.) + .5 / 1024., .5)).rgb * (.56 + .6 * clamp(dot(normalize(vN), uL), 0., 1.));
+  vec4 ln = texture2D(tLines, vUv);
+  col = mix(col, ln.rgb, ln.a);
+  gl_FragColor = vec4(mix(col, uFog, smoothstep(uFogD.x, uFogD.y, vD) * .4), 1.);
+}`;
+const BAR_VS = `uniform float uR; uniform float uLift; uniform float uHull; uniform vec3 uL;
+attribute vec3 aRad; attribute vec3 aCol; varying vec3 vC;
+void main() {
+  vec3 p = position; p.xz += aRad.xy * uR; p.y += aRad.z * uLift;
+  vC = uHull > .5 ? vec3(.87, .91, .96) : aCol * (.8 + .34 * clamp(dot(normal, uL), 0., 1.));
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.);
+}`;
+const BAR_FS = `varying vec3 vC; void main() { gl_FragColor = vec4(vC, 1.); }`;
+function build3d(V) {
+  const { gw, gh, elev } = V, ex = EXAG[V.key] / 1000, kw = V.kmPerUnit, kh = kw * gh / gw, S = kw / 127, C = gw * gh, yb = -2.2 * S;
+  V.kw = kw; V.kh = kh; V.S = S;
+  const pos = new Float32Array(C * 3), uv = new Float32Array(C * 2), idx = new Uint32Array((gw - 1) * (gh - 1) * 6);
+  for (let j = 0, c = 0; j < gh; j++) for (let i = 0; i < gw; i++, c++) {
+    const u = (i + .5) / gw, v = (j + .5) / gh;
+    pos[c * 3] = (u - .5) * kw; pos[c * 3 + 1] = elev[c] * ex; pos[c * 3 + 2] = (v - .5) * kh;
+    uv[c * 2] = u; uv[c * 2 + 1] = v;
+  }
+  for (let j = 0, p = 0; j < gh - 1; j++) for (let i = 0; i < gw - 1; i++) {
+    const a = j * gw + i, b = a + 1, c = a + gw, d = c + 1;
+    idx[p++] = a; idx[p++] = c; idx[p++] = b; idx[p++] = b; idx[p++] = c; idx[p++] = d;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  const slot = () => { const data = new Uint8Array(C * 2), tex = new THREE.DataTexture(data, gw, gh, THREE.LuminanceAlphaFormat); tex.minFilter = tex.magFilter = THREE.LinearFilter; return { data, tex, id: '' }; };
+  V.f3 = { a: slot(), b: slot() };
+  if (!G.ramp) { G.ramp = new THREE.DataTexture(new Uint8Array(LUT.buffer), LN, 1, THREE.RGBAFormat); G.ramp.minFilter = G.ramp.magFilter = THREE.LinearFilter; G.ramp.needsUpdate = true; }
+  const lc = document.createElement('canvas'); lc.width = 2048; lc.height = Math.round(2048 * gh / gw);
+  drawLines(lc.getContext('2d'), V, lc.width, lc.height, 2.4);
+  const ltex = new THREE.CanvasTexture(lc); ltex.flipY = false; ltex.anisotropy = G.renderer.capabilities.getMaxAnisotropy();
+  V.tmat = new THREE.ShaderMaterial({ vertexShader: TERRAIN_VS, fragmentShader: TERRAIN_FS, uniforms: {
+    tA: { value: V.f3.a.tex }, tB: { value: V.f3.b.tex }, tRamp: { value: G.ramp }, uMix: { value: 0 }, tLines: { value: ltex }, uL: { value: G.light }, uFog: { value: new THREE.Color(0x0d131c) }, uFogD: { value: new THREE.Vector2(100, 300) } } });
+  const g3 = V.g3 = new THREE.Group();
+  g3.add(new THREE.Mesh(geo, V.tmat));
+
+  const loop = [];
+  for (let i = 0; i < gw; i++) loop.push(i);
+  for (let j = 1; j < gh; j++) loop.push(j * gw + gw - 1);
+  for (let i = gw - 2; i >= 0; i--) loop.push((gh - 1) * gw + i);
+  for (let j = gh - 2; j > 0; j--) loop.push(j * gw);
+  const nl = loop.length, wp = new Float32Array(nl * 6), wc = new Float32Array(nl * 6), wi = new Uint16Array(nl * 6);
+  loop.forEach((c, q) => {
+    wp.set([pos[c * 3], pos[c * 3 + 1], pos[c * 3 + 2], pos[c * 3], yb, pos[c * 3 + 2]], q * 6);
+    wc.set([.13, .18, .25, .05, .075, .11], q * 6);
+    const a = q * 2, n = ((q + 1) % nl) * 2;
+    wi.set([a, a + 1, n, n, a + 1, n + 1], q * 6);
+  });
+  const wgeo = new THREE.BufferGeometry();
+  wgeo.setAttribute('position', new THREE.BufferAttribute(wp, 3));
+  wgeo.setAttribute('color', new THREE.BufferAttribute(wc, 3));
+  wgeo.setIndex(new THREE.BufferAttribute(wi, 1));
+  g3.add(new THREE.Mesh(wgeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+
+  const n = V.inView.length, nv = n * VPB, bp = new Float32Array(nv * 3), bn = new Float32Array(nv * 3), br = new Float32Array(nv * 3), bc = new Float32Array(nv * 3), bi = new Uint16Array(n * SEG * 9);
+  const B = V.bars = { n, pos: bp, col: bc, x: new Float32Array(n), z: new Float32Array(n), g: new Float32Array(n), top: new Float32Array(n),
+    sx: new Float32Array(n), sy: new Float32Array(n), gx: new Float32Array(n), gy: new Float32Array(n), rp: new Float32Array(n), vis: new Uint8Array(n) };
+  V.barOf = new Int16Array(NS).fill(-1);
+  V.inView.forEach((si, b) => {
+    const s = ST[si], x = (V.px(s.lon) - .5) * kw, z = (V.py(s.lat) - .5) * kh, g = groundY(V, s.lon, s.lat), o = b * VPB;
+    V.barOf[si] = b; B.x[b] = x; B.z[b] = z; B.g[b] = g;
+    for (let k = 0; k < VPB; k++) { bp[(o + k) * 3] = x; bp[(o + k) * 3 + 1] = g - .8 * S; bp[(o + k) * 3 + 2] = z; }
+    for (let k = 0; k < SEG; k++) {
+      const a = k / SEG * 6.2832, cx = Math.cos(a), cz = Math.sin(a), k1 = (k + 1) % SEG, q = (b * SEG + k) * 9;
+      for (const [row, top] of [[0, 0], [1, 1], [2, 1]]) {
+        const v = (o + row * SEG + k) * 3;
+        br[v] = cx; br[v + 1] = cz; br[v + 2] = top;
+        if (row < 2) { bn[v] = cx; bn[v + 2] = cz; } else bn[v + 1] = 1;
+      }
+      bi.set([o + k, o + SEG + k, o + k1, o + k1, o + SEG + k, o + SEG + k1, o + 3 * SEG, o + 2 * SEG + k1, o + 2 * SEG + k], q);
+    }
+    br[(o + 3 * SEG) * 3 + 2] = 1; bn[(o + 3 * SEG) * 3 + 1] = 1;
+  });
+  const bgeo = B.geo = new THREE.BufferGeometry();
+  bgeo.setAttribute('position', new THREE.BufferAttribute(bp, 3));
+  bgeo.setAttribute('normal', new THREE.BufferAttribute(bn, 3));
+  bgeo.setAttribute('aRad', new THREE.BufferAttribute(br, 3));
+  bgeo.setAttribute('aCol', new THREE.BufferAttribute(bc, 3));
+  bgeo.setIndex(new THREE.BufferAttribute(bi, 1));
+  const barMat = (hull, side) => new THREE.ShaderMaterial({ vertexShader: BAR_VS, fragmentShader: BAR_FS, side, uniforms: { uR: { value: .5 }, uLift: { value: 0 }, uHull: { value: hull }, uL: { value: G.light } } });
+  B.mat = barMat(0, THREE.FrontSide); B.hull = barMat(1, THREE.BackSide);
+  for (const m of [B.hull, B.mat]) { const mesh = new THREE.Mesh(bgeo, m); mesh.frustumCulled = false; g3.add(mesh); }
+
+  const pts = [];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) pts.push(sx * kw / 2, yb, sz * kh / 2);
+  for (let j = 0; j < gh; j += 10) for (let i = 0; i < gw; i += 10) { const c = (j * gw + i) * 3; pts.push(pos[c], pos[c + 1], pos[c + 2]); }
+  for (let b = 0; b < n; b++) pts.push(B.x[b], B.g[b] + 9 * S, B.z[b]);
+  V.fitPts = new Float32Array(pts); V.fitTmp = new Float32Array(pts.length);
+  G.scene.add(g3);
+}
+/* The estimate is linear in the station values, so the GPU can blend the fields of two neighboring 10-minute steps. */
+function fieldAt(V, c, vals) {
+  const { idx, w } = V.weights;
+  let s = 0, ws = 0;
+  for (let k = 0, p = c * K; k < K; k++, p++) { const v = vals[idx[p]]; if (v === v) { s += w[p] * v; ws += w[p]; } }
+  return s / ws;
+}
+function fillField3d(V, slot, i, id) {
+  if (!V.weights) buildWeights(V);
+  const m = MODES[state.mode], sc = 65535 / (m.hi - m.lo), vals = G.vals || (G.vals = new Float32Array(NS)), out = slot.data, C = V.gw * V.gh;
+  for (let s = 0; s < NS; s++) { const T = at(ST[s].T, i, 10); vals[s] = state.mode === 'temp' ? T : T - at(ST[s].T, i - 6, 10); }
+  for (let c = 0; c < C; c++) {
+    const q = clamp(Math.round((fieldAt(V, c, vals) - m.lo) * sc), 0, 65535);
+    out[c * 2] = q >> 8; out[c * 2 + 1] = q & 255;
+  }
+  slot.id = id; slot.tex.needsUpdate = true;
+}
+function updateField3d(V) {
+  const F = V.f3, i = Math.min(Math.floor(state.t), N - 1), j = Math.min(i + 1, N - 1), idA = state.mode + i, idB = state.mode + j, u = V.tmat.uniforms;
+  if ((F.a.id !== idA && F.b.id === idA) || (F.b.id !== idB && F.a.id === idB)) { const x = F.a; F.a = F.b; F.b = x; }
+  if (F.a.id !== idA) fillField3d(V, F.a, i, idA);
+  if (F.b.id !== idB) fillField3d(V, F.b, j, idB);
+  u.tA.value = F.a.tex; u.tB.value = F.b.tex; u.uMix.value = state.t - i;
+}
+function barHeight(v, S) { return (v === v ? Math.max(.3, state.mode === 'temp' ? (v + 3) * .45 : Math.abs(v) * .9) : .3) * S; }
+function updateBars(V) {
+  const B = V.bars, m = MODES[state.mode], pos = B.pos, col = B.col;
+  for (let b = 0; b < B.n; b++) {
+    const v = vShow[V.inView[b]], top = B.top[b] = B.g[b] + barHeight(v, V.S), q = v === v ? LUT[lutIdx(v, m)] : 0x6e6055;
+    const r = (q & 255) / 255, g = (q >> 8 & 255) / 255, bl = (q >> 16 & 255) / 255, o = b * VPB;
+    for (let k = SEG; k < VPB; k++) pos[(o + k) * 3 + 1] = top;
+    for (let k = 0; k < VPB; k++) { const c = (o + k) * 3; col[c] = r; col[c + 1] = g; col[c + 2] = bl; }
+  }
+  B.geo.attributes.position.needsUpdate = true; B.geo.attributes.aCol.needsUpdate = true;
+}
+function frameCamera(V, az) {
+  const el = cam.el, ce = Math.cos(el), se = Math.sin(el), sa = Math.sin(az), ca = Math.cos(az), asp = W / H;
+  const ux = sa * ce, uy = se, uz = ca * ce, rx = ca, rz = -sa, vx = uy * rz, vy = uz * rx - ux * rz, vz = -uy * rx;
+  const P = V.fitPts, T = V.fitTmp, np = P.length / 3, ty = 2 * V.S;
+  let d = 0;
+  for (let i = 0; i < np; i++) {
+    const x = P[i * 3], y = P[i * 3 + 1] - ty, z = P[i * 3 + 2], X = x * rx + z * rz, Z = x * ux + y * uy + z * uz;
+    T[i * 3] = X; T[i * 3 + 1] = x * vx + y * vy + z * vz; T[i * 3 + 2] = Z;
+    d = Math.max(d, Z + Math.abs(X) / (.95 * TANF * asp), Z + 1);
+  }
+  const span = dd => { let lo = Infinity, hi = -Infinity; for (let i = 0; i < np; i++) { const y = T[i * 3 + 1] / (dd - T[i * 3 + 2]); if (y < lo) lo = y; if (y > hi) hi = y; } return [lo / TANF, hi / TANF]; };
+  let r = span(d);
+  if (r[1] - r[0] > 1.72) {
+    let a = d, b = d * 8;
+    for (let k = 0; k < 22; k++) { const mid = (a + b) / 2; r = span(mid); if (r[1] - r[0] > 1.72) a = mid; else b = mid; }
+    d = b; r = span(d);
+  }
+  const c = G.camera, dz = cam.d = d * cam.zoom;
+  c.aspect = asp; c.near = dz * .05; c.far = dz * 5;
+  c.setViewOffset(W, H, 0, -(r[0] + r[1]) / 4 * H, W, H);
+  c.position.set(cam.px + ux * dz, ty + uy * dz, cam.pz + uz * dz);
+  c.lookAt(cam.px, ty, cam.pz);
+  c.updateMatrixWorld();
+  V.tmat.uniforms.uFogD.value.set(dz - V.kw * .2, dz + V.kw * .75);
+}
+function proj(x, y, z) {
+  const v = G.v.set(x, y, z).applyMatrix4(G.camera.matrixWorldInverse), depth = -v.z;
+  if (depth < G.camera.near) return false;
+  v.applyMatrix4(G.camera.projectionMatrix);
+  P3[0] = (v.x + 1) / 2 * W; P3[1] = (1 - v.y) / 2 * H; P3[2] = H / 2 / (TANF * depth);
+  return true;
+}
+function behindTerrain(V, x, y, z) {
+  const c = G.camera.position, e = V.elev, ex = EXAG[V.key] / 1000, m = .15 * V.S;
+  for (let k = 1; k < 48; k++) {
+    const t = k / 48, px = c.x + (x - c.x) * t, pz = c.z + (z - c.z) * t, i = Math.floor((px / V.kw + .5) * V.gw), j = Math.floor((pz / V.kh + .5) * V.gh);
+    if (i >= 0 && j >= 0 && i < V.gw && j < V.gh && e[j * V.gw + i] * ex > c.y + (y - c.y) * t + m) return true;
+  }
+  return false;
+}
+function camTo(to, ms) {
+  let da = (to.az - cam.az) % 6.2832;
+  if (da > 3.1416) da -= 6.2832; else if (da < -3.1416) da += 6.2832;
+  to = { az: cam.az + da, el: to.el, zoom: to.zoom, px: to.px, pz: to.pz };
+  if (reduced) { Object.assign(cam, to); cam.tw = null; } else cam.tw = { a: { az: cam.az, el: cam.el, zoom: cam.zoom, px: cam.px, pz: cam.pz }, b: to, t0: 0, ms };
+  cam.swayT = 0;
+  kick();
+}
+const hits = (a, list) => list.some(b => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]);
+function draw3d(now) {
+  const V = VIEWS[state.view];
+  if (!V.g3) return;
+  const B = V.bars, S = V.S, dt = Math.min(now - (cam.last || now), 100);
+  cam.last = now;
+  if (cam.tw) {
+    const w = cam.tw, f = clamp((now - (w.t0 || (w.t0 = now))) / w.ms, 0, 1), q = f < .5 ? 4 * f * f * f : 1 - Math.pow(-2 * f + 2, 3) / 2;
+    for (const k of ['az', 'el', 'px', 'pz']) cam[k] = w.a[k] + (w.b[k] - w.a[k]) * q;
+    cam.zoom = w.a.zoom * Math.pow(w.b.zoom / w.a.zoom, q);
+    if (f >= 1) cam.tw = null;
+  } else if (!cam.hold && !reduced) cam.swayT += dt;
+  for (const k in VIEWS) if (VIEWS[k].g3) VIEWS[k].g3.visible = k === state.view;
+  frameCamera(V, cam.az + .06 * Math.sin(cam.swayT * .00016));
+  const R = (V.key === 'close' ? .72 : .56) * S * clamp(1000 / W, 1, 2.2) * Math.sqrt(cam.zoom), grow = R * .17;
+  B.mat.uniforms.uR.value = R; B.hull.uniforms.uR.value = R + grow; B.hull.uniforms.uLift.value = grow * .8;
+  G.renderer.render(G.scene, G.camera);
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const small = W < 560, at3 = (lon, lat, up) => proj((V.px(lon) - .5) * V.kw, groundY(V, lon, lat) + up, (V.py(lat) - .5) * V.kh);
+  if (W >= 520) {
+    ctx.font = `600 ${Math.round(10.5 * Math.max(sc, .9))}px ${FONT_B}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    try { ctx.letterSpacing = '2.5px'; } catch (e) {}
+    for (const [name, lon, lat] of REGIONS[V.key]) {
+      if (!at3(lon, lat, .2 * S)) continue;
+      ctx.strokeStyle = 'rgba(8,12,20,.5)'; ctx.lineWidth = 3; ctx.strokeText(name, P3[0], P3[1]);
+      ctx.fillStyle = 'rgba(233,238,245,.55)'; ctx.fillText(name, P3[0], P3[1]);
+    }
+    try { ctx.letterSpacing = '0px'; } catch (e) {}
+  }
+  const pulse = reduced ? .5 : (now / 900) % 1;
+  for (let b = 0; b < B.n; b++) {
+    B.vis[b] = 0;
+    if (!proj(B.x[b], B.g[b], B.z[b])) continue;
+    B.gx[b] = P3[0]; B.gy[b] = P3[1];
+    if (!proj(B.x[b], B.top[b], B.z[b]) || behindTerrain(V, B.x[b], B.top[b], B.z[b])) continue;
+    B.sx[b] = P3[0]; B.sy[b] = P3[1]; B.rp[b] = R * P3[2]; B.vis[b] = 1;
+    const d10 = vR[V.inView[b]];
+    if (Math.abs(d10) >= 2) {
+      const rr = (R + grow) * (1.8 + pulse * 4);
+      ctx.strokeStyle = d10 > 0 ? `rgba(253,187,124,${.95 - pulse * .8})` : `rgba(181,212,247,${.95 - pulse * .8})`;
+      ctx.lineWidth = 2; ctx.beginPath();
+      for (let k = 0; k <= 28; k++) { const a = k / 28 * 6.2832; if (!proj(B.x[b] + Math.cos(a) * rr, B.g[b] + .1 * S, B.z[b] + Math.sin(a) * rr)) break; k ? ctx.lineTo(P3[0], P3[1]) : ctx.moveTo(P3[0], P3[1]); }
+      ctx.stroke();
+    }
+  }
+  for (let b = 0; b < B.n; b++) {
+    if (!B.vis[b]) continue;
+    const wv = windAt(ST[V.inView[b]], state.t);
+    if (!wv) continue;
+    const sp = Math.hypot(wv[0], wv[1]);
+    if (sp < 1.5) continue;
+    const kmh = sp * 3.6, ux = wv[0] / sp, uz = -wv[1] / sp, L = Math.min(kmh * .105, 8) * S, a = R * 1.6, y = B.top[b] + .05 * S;
+    if (!proj(B.x[b] + ux * a, y, B.z[b] + uz * a)) continue;
+    const x0 = P3[0], y0 = P3[1];
+    if (proj(B.x[b] + ux * (a + L), y, B.z[b] + uz * (a + L))) drawArrow(x0, y0, P3[0], P3[1], kmh, now);
+  }
+  const boxes = [drawClock()], labeled = new Set();
+  const place = (x, y, r, name, val, must) => {
+    let t = null;
+    for (const dy of must ? [0, -15, 15] : [0]) {
+      for (const side of ['r', 'l']) { const c = tagBox(x, y + dy, r, name, val, side); if (c.rect[0] > 4 && c.rect[2] < W - 4 && !hits(c.rect, boxes)) { t = c; break; } }
+      if (t) break;
+    }
+    if (!t) { if (!must) return; t = tagBox(x, y, r, name, val, x > W * .6 ? 'l' : 'r'); }
+    boxes.push(t.rect); paintTag(t);
+  };
+  const bq = 5.5 * Math.max(sc, .8);
+  let baden = null;
+  if (at3(BADEN.lon, BADEN.lat, .1 * S) && !behindTerrain(V, (V.px(BADEN.lon) - .5) * V.kw, groundY(V, BADEN.lon, BADEN.lat) + .4 * S, (V.py(BADEN.lat) - .5) * V.kh)) {
+    baden = [P3[0], P3[1]];
+    boxes.push([P3[0] - bq - 2, P3[1] - bq - 2, P3[0] + bq + 2, P3[1] + bq + 2]);
+  }
+  for (const l of LABELS[V.key]) {
+    const b = V.barOf[l.i];
+    if ((small && !l.pri) || b < 0 || !B.vis[b]) continue;
+    labeled.add(l.i);
+    place(B.sx[b], B.sy[b], B.rp[b] + 1, l.lab, valueLabel(vShow[l.i]), l.pri);
+  }
+  if (baden) {
+    const bx = baden[0], by = baden[1], q = bq;
+    const ci = clamp(Math.floor(V.py(BADEN.lat) * V.gh), 0, V.gh - 1) * V.gw + clamp(Math.floor(V.px(BADEN.lon) * V.gw), 0, V.gw - 1), fv = fieldAt(V, ci, vShow);
+    ctx.beginPath(); ctx.moveTo(bx, by - q); ctx.lineTo(bx + q, by); ctx.lineTo(bx, by + q); ctx.lineTo(bx - q, by); ctx.closePath();
+    ctx.fillStyle = '#0a0f16'; ctx.fill(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8; ctx.stroke();
+    place(bx, by, q - 1, 'Baden', fv === fv ? '≈' + valueLabel(Math.round(fv)).replace('.0', '') : '', true);
+  }
+  for (const i of [state.sel, state.hover]) {
+    const b = i < 0 ? -1 : V.barOf[i];
+    if (b < 0 || !B.vis[b]) continue;
+    ctx.strokeStyle = i === state.sel ? SCOL[4] : '#ffffff'; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.arc(B.sx[b], B.sy[b], B.rp[b] + 4.5, 0, 6.2832); ctx.stroke();
+    if (!labeled.has(i)) { labeled.add(i); place(B.sx[b], B.sy[b], B.rp[b] + 4, ST[i].name, valueLabel(vShow[i]), true); }
+  }
+  if (proj(cam.px, 0, cam.pz)) {
+    const x = P3[0], y = P3[1];
+    if (proj(cam.px, 0, cam.pz - 5 * S)) { const deg = Math.round(Math.atan2(P3[0] - x, y - P3[1]) * 180 / Math.PI); if (deg !== G.north) { G.north = deg; $('needle').style.transform = `rotate(${deg}deg)`; } }
+  }
+}
+function nearest3d(x, y, touch) {
+  const V = VIEWS[state.view], B = V.bars;
+  if (!B) return -1;
+  let best = -1, bd = (touch ? 24 : 13) ** 2;
+  for (let b = 0; b < B.n; b++) {
+    if (!B.vis[b]) continue;
+    const ax = B.gx[b], ay = B.gy[b], dx = B.sx[b] - ax, dy = B.sy[b] - ay, l2 = dx * dx + dy * dy, t = l2 ? clamp(((x - ax) * dx + (y - ay) * dy) / l2, 0, 1) : 0;
+    const ex = x - ax - dx * t, ey = y - ay - dy * t, d = ex * ex + ey * ey;
+    if (d < bd) { bd = d; best = V.inView[b]; }
+  }
+  return best;
 }
 
 /* charts */
@@ -910,15 +1299,21 @@ function markRank() { for (const tr of $('rank').querySelectorAll('tbody tr')) t
 
 /* controls */
 const CHAPTERS = [
-  [30, 'Cold air fills the basin', 'Gumpoldskirchen reads 6.1 °C. Hohe Wand, 725 m higher, reads 10.8 °C.'],
-  [35, 'The wind reaches the ground', 'Brunn am Gebirge jumps from 7.6 to 12.2 °C in 20 minutes. Berndorf and Klausen-Leopoldsdorf follow.'],
-  [38, 'Gumpoldskirchen flips', 'From 6.7 to 15.1 °C in 20 minutes, with gusts up to 55 km/h.'],
-  [44, 'Vienna and the airport follow', 'Schwechat reaches 14.4 °C and Hohe Warte 12.2 °C. Eisenstadt is still at 8.7 °C.'],
-  [63, 'The cold air comes back', 'The wind drops. Gumpoldskirchen falls from 14.1 to 11.0 °C in ten minutes.']
+  [30, 'Cold air fills the basin', 'Gumpoldskirchen reads 6.1 °C. Hohe Wand, 725 m higher, reads 10.8 °C.', null],
+  [35, 'The wind reaches the ground', 'Brunn am Gebirge jumps from 7.6 to 12.2 °C in 20 minutes. Berndorf and Klausen-Leopoldsdorf follow.', [.95, .5, .5, 16.2, 48.06]],
+  [38, 'Gumpoldskirchen flips', 'From 6.7 to 15.1 °C in 20 minutes, with gusts up to 55 km/h.', [.25, .5, .36, 16.28, 48.03]],
+  [44, 'Vienna and the airport follow', 'Schwechat reaches 14.4 °C and Hohe Warte 12.2 °C. Eisenstadt is still at 8.7 °C.', [-.55, .55, .5, 16.42, 48.12]],
+  [63, 'The cold air comes back', 'The wind drops. Gumpoldskirchen falls from 14.1 to 11.0 °C in ten minutes.', null]
 ];
+function chapterCam(n) {
+  const V = VIEWS[state.view], c = CHAPTERS[n][3];
+  if (state.dim !== '3d' || !V.g3) return;
+  if (!c || V.key !== 'close') camTo({ az: CAM0.az, el: CAM0.el, zoom: zoom0(), px: 0, pz: 0 }, 1400);
+  else camTo({ az: c[0], el: c[1], zoom: c[2], px: (V.px(c[3]) - .5) * V.kw, pz: (V.py(c[4]) - .5) * V.kh }, 1400);
+}
 const pct = f => (f - F0) / (F1 - F0) * 100;
-$('chapters').innerHTML = CHAPTERS.map(([f, h, p]) => `<li><button type="button" data-f="${f}"><time>${fmtTime(f)}</time><span><strong>${h}.</strong> ${p}</span></button></li>`).join('');
-$('chapters').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { pause(); setTime(+b.dataset.f); } });
+$('chapters').innerHTML = CHAPTERS.map(([f, h, p], n) => `<li><button type="button" data-f="${f}" data-n="${n}"><time>${fmtTime(f)}</time><span><strong>${h}.</strong> ${p}</span></button></li>`).join('');
+$('chapters').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { pause(); setTime(+b.dataset.f); chapterCam(+b.dataset.n); } });
 $('marks').innerHTML = CHAPTERS.map(([f]) => `<i style="left:${pct(f)}%"></i>`).join('');
 { let h = ''; for (let f = F0, n = 0; f <= F1; f += 6, n++) h += `<span style="left:${pct(f)}%" data-n="${n}">${fmtTime(f)}</span>`; $('hours').innerHTML = h; }
 function fitHours() { const narrow = $('hours').clientWidth < 420; for (const s of $('hours').children) s.hidden = narrow && (+s.dataset.n % 2 === 1); }
@@ -933,10 +1328,85 @@ slider.addEventListener('keydown', e => { const d = e.key === 'ArrowRight' ? 1 :
 $('speed').onclick = () => { state.speed = state.speed === 1 ? 2 : state.speed === 2 ? .5 : 1; $('speed').textContent = (state.speed === .5 ? '½' : state.speed) + '×'; };
 document.addEventListener('keydown', e => { if (e.code === 'Space' && !/^(INPUT|BUTTON|A|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) { e.preventDefault(); state.playing ? pause() : play(); } });
 function press(a, b, on) { a.setAttribute('aria-pressed', on ? 'true' : 'false'); b.setAttribute('aria-pressed', on ? 'false' : 'true'); }
-function setView(v) { if (state.view === v) return; state.view = v; press($('viewClose'), $('viewWide'), v === 'close'); state.hover = -1; $('tip').hidden = true; renderProf(); dirty = true; kick(); }
-function setMode(mo) { if (state.mode === mo) return; state.mode = mo; press($('modeTemp'), $('modeDelta'), mo === 'temp'); renderRamp(); dirty = true; kick(); }
+function syncKeys() {
+  const d3 = state.dim === '3d';
+  $('keyDot').hidden = d3; $('keyBar').hidden = !d3; $('keyEx').hidden = !d3;
+  $('keyBarText').textContent = state.mode === 'temp' ? 'Station reading, taller is warmer' : 'Station reading, taller is a bigger change';
+  $('keyEx').textContent = `Terrain heights are stretched ${EXAG[state.view]} times.`;
+}
+function setView(v) { if (state.view === v) return; state.view = v; press($('viewClose'), $('viewWide'), v === 'close'); state.hover = -1; $('tip').hidden = true; cam.px = cam.pz = 0; cam.zoom = zoom0(); cam.tw = null; syncKeys(); renderProf(); dirty = true; kick(); }
+function setMode(mo) { if (state.mode === mo) return; state.mode = mo; press($('modeTemp'), $('modeDelta'), mo === 'temp'); syncKeys(); renderRamp(); dirty = true; kick(); }
+function setDim(d) {
+  if (state.dim === d || (d === '3d' && !G.ok)) return;
+  state.dim = d;
+  const d3 = d === '3d';
+  press($('dim3'), $('dimFlat'), d3);
+  glc.hidden = !d3; $('camctl').hidden = !d3; $('camHint').hidden = !d3; wrap.classList.toggle('is3d', d3);
+  canvas.style.cursor = d3 ? 'grab' : 'crosshair';
+  canvas.setAttribute('aria-label', d3
+    ? '3D view of station temperatures and wind over time. Arrow keys turn and tilt the view, plus and minus zoom. The table below lists the same key figures.'
+    : 'Map of station temperatures and wind over time. The table below lists the same key figures.');
+  state.hover = -1; $('tip').hidden = true;
+  syncKeys(); resize(); cam.zoom = zoom0(); dirty = true; kick();
+}
 $('viewClose').onclick = () => setView('close'); $('viewWide').onclick = () => setView('wide');
 $('modeTemp').onclick = () => setMode('temp'); $('modeDelta').onclick = () => setMode('delta');
+$('dim3').onclick = () => setDim('3d'); $('dimFlat').onclick = () => setDim('flat');
+
+/* 3D camera */
+const setZoom = z => { cam.zoom = clamp(z, .22, 1.3); kick(); };
+function touched() { cam.tw = null; $('camHint').classList.add('gone'); kick(); }
+function resetCam() { camTo({ az: CAM0.az, el: CAM0.el, zoom: zoom0(), px: 0, pz: 0 }, 700); }
+function panBy(dx, dy) {
+  const V = VIEWS[state.view], s = cam.d * TANF * 2 / H, rx = Math.cos(cam.az), rz = -Math.sin(cam.az), k = dy / Math.max(.35, Math.sin(cam.el));
+  cam.px = clamp(cam.px - (rx * dx - rz * k) * s, -V.kw / 2, V.kw / 2);
+  cam.pz = clamp(cam.pz - (rz * dx + rx * k) * s, -V.kh / 2, V.kh / 2);
+}
+$('camReset').onclick = resetCam;
+$('zoomIn').onclick = () => { setZoom(cam.zoom / 1.35); touched(); };
+$('zoomOut').onclick = () => { setZoom(cam.zoom * 1.35); touched(); };
+$('camHint').textContent = matchMedia('(pointer: coarse)').matches ? 'Drag sideways to turn. Pinch to zoom.' : 'Drag to turn. Shift and drag to move. Ctrl and scroll to zoom.';
+const ptrs = new Map();
+let dragMoved = false, dragStart = null;
+canvas.addEventListener('pointerenter', () => { cam.hold = true; });
+canvas.addEventListener('pointerdown', e => {
+  if (state.dim !== '3d') return;
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size === 1) { dragMoved = false; dragStart = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey }; }
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+});
+function dragTo(e) {
+  const p = ptrs.get(e.pointerId), dx = e.clientX - p[0], dy = e.clientY - p[1];
+  if (ptrs.size === 1) {
+    if (!dragMoved && Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y) < 5) return;
+    if (dragStart.pan) panBy(dx, dy); else { cam.az -= dx * .006; cam.el = clamp(cam.el + dy * .005, .28, 1.4); }
+  } else {
+    let o = p;
+    for (const [id, q] of ptrs) if (id !== e.pointerId) o = q;
+    const d0 = Math.hypot(p[0] - o[0], p[1] - o[1]), d1 = Math.hypot(e.clientX - o[0], e.clientY - o[1]);
+    if (d0 > 0 && d1 > 0) setZoom(cam.zoom * d0 / d1);
+    panBy(dx / 2, dy / 2);
+  }
+  dragMoved = true; p[0] = e.clientX; p[1] = e.clientY;
+  if (state.hover >= 0) { state.hover = -1; fillTip(); }
+  canvas.style.cursor = 'grabbing';
+  touched();
+}
+function dragEnd(e) { if (ptrs.delete(e.pointerId) && state.dim === '3d') canvas.style.cursor = 'grab'; }
+canvas.addEventListener('pointerup', dragEnd);
+canvas.addEventListener('pointercancel', dragEnd);
+canvas.addEventListener('contextmenu', e => { if (state.dim === '3d') e.preventDefault(); });
+canvas.addEventListener('wheel', e => { if (state.dim === '3d' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setZoom(cam.zoom * Math.exp(clamp(e.deltaY, -60, 60) * .004)); touched(); } }, { passive: false });
+canvas.addEventListener('keydown', e => {
+  if (state.dim !== '3d') return;
+  const k = e.key;
+  if (k === 'ArrowLeft') cam.az += .12; else if (k === 'ArrowRight') cam.az -= .12;
+  else if (k === 'ArrowUp') cam.el = clamp(cam.el + .08, .28, 1.4); else if (k === 'ArrowDown') cam.el = clamp(cam.el - .08, .28, 1.4);
+  else if (k === '+' || k === '=') setZoom(cam.zoom / 1.2); else if (k === '-') setZoom(cam.zoom * 1.2);
+  else if (k === '0') { e.preventDefault(); resetCam(); return; } else return;
+  e.preventDefault(); touched();
+});
+glc.addEventListener('webglcontextlost', e => { e.preventDefault(); G.ok = false; $('dimSeg').hidden = true; state.dim = '3d'; setDim('flat'); });
 function renderRamp() {
   const c = $('ramp'), x = c.getContext('2d'), m = MODES[state.mode];
   for (let i = 0; i < c.width; i++) { x.fillStyle = LCSS[Math.round(i / (c.width - 1) * (LN - 1))]; x.fillRect(i, 0, 1, c.height); }
@@ -948,6 +1418,7 @@ function setTime(t) { state.t = clamp(t, F0, F1); dirty = true; kick(); }
 /* map pointer */
 function nearest(e) {
   const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, V = VIEWS[state.view];
+  if (state.dim === '3d') return nearest3d(x, y, e.pointerType === 'touch');
   let best = -1, bd = (e.pointerType === 'touch' ? 26 : 16) ** 2;
   for (const i of V.inView) { const dx = V.px(ST[i].lon) * W - x, dy = V.py(ST[i].lat) * H - y, d = dx * dx + dy * dy; if (d < bd) { bd = d; best = i; } }
   return best;
@@ -965,13 +1436,22 @@ function fillTip() {
     `<div class="row"><span>Gusts</span><span>${fx === fx ? Math.round(fx) + ' km/h' : '–'}</span></div>` +
     `<div class="hint">${state.sel === i ? 'Select again to remove from charts' : 'Select to add to the charts'}</div>`;
   tip.hidden = false;
-  const x = V.px(s.lon) * W, y = V.py(s.lat) * H, tw = tip.offsetWidth, th = tip.offsetHeight;
+  const b = state.dim === '3d' && V.bars ? V.barOf[i] : -1;
+  const x = b >= 0 ? V.bars.sx[b] : V.px(s.lon) * W, y = b >= 0 ? V.bars.sy[b] : V.py(s.lat) * H, tw = tip.offsetWidth, th = tip.offsetHeight;
   tip.style.left = clamp(x + 16 + tw > W ? x - 16 - tw : x + 16, 4, Math.max(4, W - tw - 4)) + 'px';
   tip.style.top = clamp(y - th / 2, 4, Math.max(4, H - th - 4)) + 'px';
 }
-canvas.addEventListener('pointermove', e => { const i = nearest(e); if (i !== state.hover) { state.hover = i; canvas.style.cursor = i >= 0 ? 'pointer' : 'crosshair'; fillTip(); kick(); } });
-canvas.addEventListener('pointerleave', () => { if (state.hover >= 0) { state.hover = -1; fillTip(); kick(); } });
-canvas.addEventListener('click', e => { const i = nearest(e); if (i >= 0) { state.hover = i; select(i); fillTip(); } else if (state.hover >= 0) { state.hover = -1; fillTip(); kick(); } });
+canvas.addEventListener('pointermove', e => {
+  if (state.dim === '3d' && ptrs.has(e.pointerId)) { dragTo(e); return; }
+  const i = nearest(e);
+  if (i !== state.hover) { state.hover = i; canvas.style.cursor = i >= 0 ? 'pointer' : state.dim === '3d' ? 'grab' : 'crosshair'; fillTip(); kick(); }
+});
+canvas.addEventListener('pointerleave', () => { cam.hold = false; if (state.hover >= 0) { state.hover = -1; fillTip(); kick(); } });
+canvas.addEventListener('click', e => {
+  if (dragMoved) { dragMoved = false; return; }
+  const i = nearest(e);
+  if (i >= 0) { state.hover = i; select(i); fillTip(); } else if (state.hover >= 0) { state.hover = -1; fillTip(); kick(); }
+});
 
 /* loop */
 let raf = 0, last = 0, holdUntil = 0;
@@ -994,7 +1474,7 @@ function frame(now) {
     [...$('chapters').querySelectorAll('button')].forEach((b, n) => b.setAttribute('aria-current', n === cur ? 'true' : 'false'));
     if (state.hover >= 0) fillTip();
   }
-  if (mapVisible && W) { if (dirty2) { dirty2 = false; composeBg(); } drawMap(now); }
+  if (mapVisible && W) { if (dirty2) { dirty2 = false; composeBg(); } state.dim === '3d' ? draw3d(now) : drawMap(now); }
   if (state.playing || (mapVisible && !reduced && !document.hidden)) kick(); else last = 0;
 }
 let dirty2 = false;
@@ -1006,6 +1486,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) kick
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { for (const k in VIEWS) VIEWS[k].overlay = null; dirty = true; kick(); });
 
 renderStats(); renderRank(); renderLegend(); renderRamp(); syncPlay(); fitHours();
+init3d();
+if (G.ok) { $('dimSeg').hidden = false; setDim('3d'); }
 resize(); computeVals(); tsChart.render(); gustChart.render(); renderProf(); updateLegend(); markRank();
 kick();
 if (!reduced) play();
